@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Sidebar from "@/app/components/sidebar";
 import JobCard from "@/app/components/job-card";
 import ResumeRequiredModal from "@/app/components/resume-required-modal";
@@ -37,6 +37,25 @@ type DonutMetric = {
   value: number;
   color: string;
   subtitle: string;
+};
+
+type ParsedResumeApi = {
+  name: string;
+  email: string;
+  phone: string;
+  skills: string[];
+  experience: {
+    company: string;
+    role: string;
+    duration: string;
+    description: string;
+  }[];
+  education: {
+    institution: string;
+    degree: string;
+    year: string;
+  }[];
+  certifications: string[];
 };
 
 const EMPTY_PROFILE: Profile = {
@@ -194,9 +213,12 @@ export default function Home() {
   const [hasResume, setHasResume] = useState(false);
   const [showResumeRequired, setShowResumeRequired] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(true);
+  const [isParsingResume, setIsParsingResume] = useState(false);
+  const [uploadError, setUploadError] = useState<string>("");
   const [newSkill, setNewSkill] = useState("");
   const [selectedJobId, setSelectedJobId] = useState(ALL_JOBS[0].id);
   const [profile, setProfile] = useState<Profile>(EMPTY_PROFILE);
+  const resumeInputRef = useRef<HTMLInputElement>(null);
 
   const selectedJob = useMemo(
     () => ALL_JOBS.find((job) => job.id === selectedJobId) ?? ALL_JOBS[0],
@@ -254,6 +276,7 @@ export default function Home() {
       setHasResume(false);
       setProfile(EMPTY_PROFILE);
       setIsEditingProfile(true);
+      setUploadError("");
       setShowResumeRequired(false);
       return;
     }
@@ -274,6 +297,7 @@ export default function Home() {
   const uploadMockResume = () => {
     setHasResume(true);
     setIsEditingProfile(false);
+    setUploadError("");
     setProfile({
       fullName: "Juan Dela Cruz",
       address: "Not Found",
@@ -284,6 +308,103 @@ export default function Home() {
       experience: "2 years as Data Analyst",
       skills: ["Python", "SQL", "Tableau", "Excel"],
     });
+  };
+
+  const openResumePicker = () => {
+    resumeInputRef.current?.click();
+  };
+
+  const handleResumeFileSelected = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    const fileName = file.name.toLowerCase();
+    if (!fileName.endsWith(".pdf") && !fileName.endsWith(".docx")) {
+      setUploadError("Please upload a PDF or DOCX resume.");
+      event.target.value = "";
+      return;
+    }
+
+    setIsParsingResume(true);
+    setUploadError("");
+
+    try {
+      const formData = new FormData();
+      formData.append("resume", file);
+
+      const response = await fetch("/api/parse-resume", {
+        method: "POST",
+        body: formData,
+      });
+
+      const rawBody = await response.text();
+      const payload = (() => {
+        try {
+          return JSON.parse(rawBody) as ParsedResumeApi | { error?: string };
+        } catch {
+          return null;
+        }
+      })();
+
+      if (!response.ok) {
+        const message =
+          payload && "error" in payload && payload.error
+            ? payload.error
+            : rawBody.includes("<!DOCTYPE")
+              ? "Server returned HTML instead of JSON. Check your API route and server logs."
+              : "Failed to parse resume.";
+        throw new Error(message);
+      }
+
+      if (!payload) {
+        throw new Error("Server response was not valid JSON.");
+      }
+
+      const parsed = payload as ParsedResumeApi;
+
+      const flattenedEducation = parsed.education
+        .map((item) => [item.degree, item.institution, item.year ? `(${item.year})` : ""]
+          .filter(Boolean)
+          .join(" "))
+        .join("; ");
+
+      const flattenedExperience = parsed.experience
+        .map((item) =>
+          [
+            item.role,
+            item.company ? `at ${item.company}` : "",
+            item.duration ? `(${item.duration})` : "",
+            item.description,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        )
+        .join("; ");
+
+      setProfile((prev) => ({
+        ...prev,
+        fullName: parsed.name || prev.fullName,
+        contact: parsed.phone || prev.contact,
+        email: parsed.email || prev.email,
+        education: flattenedEducation || prev.education,
+        certifications: parsed.certifications.join(", ") || prev.certifications,
+        experience: flattenedExperience || prev.experience,
+        skills: parsed.skills.length > 0 ? parsed.skills : prev.skills,
+      }));
+
+      setHasResume(true);
+      setIsEditingProfile(false);
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : "Failed to upload resume.");
+    } finally {
+      setIsParsingResume(false);
+      event.target.value = "";
+    }
   };
 
   const addSkill = () => {
@@ -317,6 +438,13 @@ export default function Home() {
 
       <main className="flex flex-1 flex-col overflow-auto">
         <header className="flex h-16 flex-shrink-0 items-center justify-between border-b border-white/[0.07] px-6 sm:px-8">
+          <input
+            ref={resumeInputRef}
+            type="file"
+            accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            onChange={handleResumeFileSelected}
+            className="hidden"
+          />
           <h1 className="text-xs font-medium uppercase tracking-widest text-zinc-400">
             {active}
           </h1>
@@ -326,10 +454,11 @@ export default function Home() {
             </span>
             <button
               type="button"
-              onClick={uploadMockResume}
+              onClick={openResumePicker}
+              disabled={isParsingResume}
               className="h-8 rounded bg-[#e8ff47] px-4 text-xs font-semibold text-black transition-opacity hover:opacity-90"
             >
-              Upload Resume
+              {isParsingResume ? "Parsing..." : "Upload Resume"}
             </button>
           </div>
         </header>
@@ -341,6 +470,7 @@ export default function Home() {
                 <div>
                   <p className="text-xs uppercase tracking-[0.16em] text-[#e8ff47]/70">Profile</p>
                   <h2 className="mt-1 text-2xl font-bold text-white">Resume Data</h2>
+                  {uploadError && <p className="mt-2 text-sm text-rose-300">{uploadError}</p>}
                 </div>
                 <div className="flex items-center gap-2">
                   <button
@@ -353,12 +483,20 @@ export default function Home() {
                   {!hasResume && (
                     <button
                       type="button"
-                      onClick={uploadMockResume}
-                      className="rounded bg-[#e8ff47] px-3 py-1.5 text-xs font-semibold text-black"
+                      onClick={openResumePicker}
+                      disabled={isParsingResume}
+                      className="rounded bg-[#e8ff47] px-3 py-1.5 text-xs font-semibold text-black disabled:opacity-50"
                     >
-                      Use Mock Resume
+                      {isParsingResume ? "Uploading..." : "Upload Resume File"}
                     </button>
                   )}
+                  <button
+                    type="button"
+                    onClick={uploadMockResume}
+                    className="rounded border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/[0.08]"
+                  >
+                    Use Mock Resume
+                  </button>
                 </div>
               </div>
 
