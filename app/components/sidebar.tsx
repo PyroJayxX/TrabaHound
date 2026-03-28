@@ -16,11 +16,20 @@ const ACTION_ITEMS = [
 export default function Sidebar({
   active,
   onNavigate,
+  crawlerStatus = "idle",
 }: {
   active: string;
   onNavigate: (label: string) => void;
+  crawlerStatus?: "idle" | "crawling" | "ready" | "error";
 }) {
   const [collapsed, setCollapsed] = useState(false);
+
+  const statusUi: Record<typeof crawlerStatus, { label: string; dotClass: string }> = {
+    idle: { label: "Crawler idle", dotClass: "bg-zinc-400" },
+    crawling: { label: "Crawling the Web...", dotClass: "bg-amber-400 animate-pulse" },
+    ready: { label: "Crawl complete!", dotClass: "bg-emerald-400" },
+    error: { label: "Crawler error!", dotClass: "bg-rose-400" },
+  };
 
   return (
     <aside
@@ -101,8 +110,8 @@ export default function Sidebar({
       <div className="border-t border-white/[0.07] p-4">
         {!collapsed && (
           <div className="flex items-center gap-2 text-xs text-zinc-400">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            <span>Crawler idle</span>
+            <span className={`h-1.5 w-1.5 rounded-full ${statusUi[crawlerStatus].dotClass}`} />
+            <span>{statusUi[crawlerStatus].label}</span>
           </div>
         )}
       </div>

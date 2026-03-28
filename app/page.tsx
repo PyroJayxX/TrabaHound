@@ -2,8 +2,8 @@
 
 import { useMemo, useRef, useState } from "react";
 import Sidebar from "@/app/components/sidebar";
-import JobCard from "@/app/components/job-card";
 import ResumeRequiredModal from "@/app/components/resume-required-modal";
+import JobDashboard from "@/app/components/job-dashboard";
 
 type Screen = "Profile" | "Dashboard" | "Saved Jobs" | "Skill Gap";
 
@@ -16,20 +16,6 @@ type Profile = {
   certifications: string;
   experience: string;
   skills: string[];
-};
-
-type Job = {
-  id: string;
-  title: string;
-  company: string;
-  location: string;
-  mode: string;
-  source: string;
-  postingUrl: string;
-  match: number;
-  skills: string[];
-  requiredSkills: string[];
-  recommendation: string;
 };
 
 type DonutMetric = {
@@ -58,6 +44,22 @@ type ParsedResumeApi = {
   certifications: string[];
 };
 
+type ResumeDataForJobs = {
+  skills: string[];
+  experience: {
+    company: string;
+    role: string;
+    duration: string;
+    description: string;
+  }[];
+  education: {
+    institution: string;
+    degree: string;
+    year: string;
+  }[];
+  certifications: string[];
+};
+
 const EMPTY_PROFILE: Profile = {
   fullName: "",
   address: "",
@@ -68,50 +70,6 @@ const EMPTY_PROFILE: Profile = {
   experience: "",
   skills: [],
 };
-
-const ALL_JOBS: Job[] = [
-  {
-    id: "j1",
-    title: "Data Analyst",
-    company: "Helix Commerce",
-    location: "Taguig, PH",
-    mode: "Hybrid",
-    source: "LinkedIn",
-    postingUrl: "https://www.linkedin.com/jobs/",
-    match: 89,
-    skills: ["Python", "SQL", "Tableau"],
-    requiredSkills: ["SQL", "Tableau", "Data Modeling", "Python"],
-    recommendation: "Learn advanced SQL joins to improve match from 65% to 90%.",
-  },
-  {
-    id: "j2",
-    title: "Business Intelligence Associate",
-    company: "Northstar Lending",
-    location: "Makati, PH",
-    mode: "On-site",
-    source: "Indeed",
-    postingUrl: "https://www.indeed.com/jobs",
-    match: 82,
-    skills: ["Power BI", "Excel", "ETL"],
-    requiredSkills: ["Power BI", "ETL", "DAX", "SQL"],
-    recommendation: "Study DAX and SQL query tuning for stronger BI performance.",
-  },
-  {
-    id: "j3",
-    title: "Product Data Specialist",
-    company: "Atlas Retail Labs",
-    location: "Remote - APAC",
-    mode: "Remote",
-    source: "JobStreet",
-    postingUrl: "https://www.jobstreet.com.ph/en/job-search/jobs/",
-    match: 76,
-    skills: ["Analytics", "A/B Testing", "SQL"],
-    requiredSkills: ["A/B Testing", "SQL", "Experiment Design", "Python"],
-    recommendation: "Improve experiment design to move from 70% to 88% match.",
-  },
-];
-
-const SAVED_JOB_IDS = ["j2", "j3"];
 
 function infoOrNotFound(value: string) {
   return value.trim().length > 0 ? value : "Not Found";
@@ -213,22 +171,18 @@ export default function Home() {
   const [hasResume, setHasResume] = useState(false);
   const [showResumeRequired, setShowResumeRequired] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(true);
+  const [crawlerStatus, setCrawlerStatus] = useState<"idle" | "crawling" | "ready" | "error">("idle");
   const [isParsingResume, setIsParsingResume] = useState(false);
   const [uploadError, setUploadError] = useState<string>("");
   const [newSkill, setNewSkill] = useState("");
-  const [selectedJobId, setSelectedJobId] = useState(ALL_JOBS[0].id);
   const [profile, setProfile] = useState<Profile>(EMPTY_PROFILE);
+  const [resumeDataForJobs, setResumeDataForJobs] = useState<ResumeDataForJobs>({
+    skills: [],
+    experience: [],
+    education: [],
+    certifications: [],
+  });
   const resumeInputRef = useRef<HTMLInputElement>(null);
-
-  const selectedJob = useMemo(
-    () => ALL_JOBS.find((job) => job.id === selectedJobId) ?? ALL_JOBS[0],
-    [selectedJobId],
-  );
-
-  const savedJobs = useMemo(
-    () => ALL_JOBS.filter((job) => SAVED_JOB_IDS.includes(job.id)),
-    [],
-  );
 
   const strengths = useMemo(
     () => ["Communication", "Data storytelling", "Dashboarding"],
@@ -275,6 +229,8 @@ export default function Home() {
       setActive("Profile");
       setHasResume(false);
       setProfile(EMPTY_PROFILE);
+      setResumeDataForJobs({ skills: [], experience: [], education: [], certifications: [] });
+      setCrawlerStatus("idle");
       setIsEditingProfile(true);
       setUploadError("");
       setShowResumeRequired(false);
@@ -298,6 +254,7 @@ export default function Home() {
     setHasResume(true);
     setIsEditingProfile(false);
     setUploadError("");
+    setCrawlerStatus("idle");
     setProfile({
       fullName: "Juan Dela Cruz",
       address: "Not Found",
@@ -307,6 +264,25 @@ export default function Home() {
       certifications: "Google Data Analytics",
       experience: "2 years as Data Analyst",
       skills: ["Python", "SQL", "Tableau", "Excel"],
+    });
+    setResumeDataForJobs({
+      skills: ["Python", "SQL", "Tableau", "Excel"],
+      experience: [
+        {
+          company: "Acme Analytics",
+          role: "Data Analyst",
+          duration: "2 years",
+          description: "Built dashboards and automated reporting pipelines.",
+        },
+      ],
+      education: [
+        {
+          institution: "Metro University",
+          degree: "BS Information Systems",
+          year: "2022",
+        },
+      ],
+      certifications: ["Google Data Analytics"],
     });
   };
 
@@ -332,6 +308,7 @@ export default function Home() {
 
     setIsParsingResume(true);
     setUploadError("");
+    setCrawlerStatus("idle");
 
     try {
       const formData = new FormData();
@@ -366,6 +343,13 @@ export default function Home() {
       }
 
       const parsed = payload as ParsedResumeApi;
+
+      setResumeDataForJobs({
+        skills: parsed.skills,
+        experience: parsed.experience,
+        education: parsed.education,
+        certifications: parsed.certifications,
+      });
 
       const flattenedEducation = parsed.education
         .map((item) => [item.degree, item.institution, item.year ? `(${item.year})` : ""]
@@ -434,7 +418,7 @@ export default function Home() {
       className="flex h-screen w-full overflow-hidden bg-[#0a0a0b] text-white"
       style={{ fontFamily: "'DM Sans', 'Inter', sans-serif" }}
     >
-      <Sidebar active={active} onNavigate={handleNavigate} />
+      <Sidebar active={active} onNavigate={handleNavigate} crawlerStatus={crawlerStatus} />
 
       <main className="flex flex-1 flex-col overflow-auto">
         <header className="flex h-16 flex-shrink-0 items-center justify-between border-b border-white/[0.07] px-6 sm:px-8">
@@ -450,7 +434,7 @@ export default function Home() {
           </h1>
           <div className="flex items-center gap-3">
             <span className="rounded border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-zinc-400">
-              {hasResume ? `${ALL_JOBS.length} jobs curated` : "Upload resume to unlock"}
+              {hasResume ? "Resume loaded" : "Upload resume to unlock"}
             </span>
             <button
               type="button"
@@ -583,60 +567,15 @@ export default function Home() {
           )}
 
           {active === "Dashboard" && (
-            <section className="mx-auto grid w-full max-w-6xl gap-4 xl:grid-cols-[1.6fr_1fr]">
-              <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5">
-                <h2 className="text-xl font-semibold text-white">Curated Job Listings</h2>
-                <p className="mt-1 text-sm text-zinc-400">
-                  Matched skills, title, company, location, and mode of work.
-                </p>
-                <div className="mt-4 space-y-3">
-                  {ALL_JOBS.map((job) => (
-                    <JobCard key={job.id} job={job} onClick={() => setSelectedJobId(job.id)} />
-                  ))}
-                </div>
-              </div>
-
-              <aside className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5">
-                <h3 className="text-base font-semibold text-white">Skill Gap Analysis</h3>
-                <p className="mt-1 text-xs uppercase tracking-widest text-zinc-500">
-                  Selected Job
-                </p>
-                <p className="mt-2 text-sm text-zinc-200">{selectedJob.title}</p>
-                <p className="text-sm text-zinc-400">{selectedJob.company}</p>
-
-                <div className="mt-4 rounded-xl border border-white/10 bg-black/25 p-4">
-                  <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">Required Skills</p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {selectedJob.requiredSkills.map((skill) => (
-                      <span
-                        key={skill}
-                        className="rounded border border-white/10 bg-white/[0.04] px-2 py-1 text-xs text-zinc-300"
-                      >
-                        {skill}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="mt-4 rounded-xl border border-cyan-300/20 bg-cyan-300/5 p-4">
-                  <p className="text-sm text-cyan-100">{selectedJob.recommendation}</p>
-                  <p className="mt-2 text-xs text-zinc-400">
-                    Example improvement path: Learn SQL to improve match from 65% to 90%.
-                  </p>
-                </div>
-              </aside>
-            </section>
+            <JobDashboard resumeData={resumeDataForJobs} onStatusChange={setCrawlerStatus} />
           )}
 
           {active === "Saved Jobs" && (
             <section className="mx-auto w-full max-w-5xl rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5">
               <h2 className="text-xl font-semibold text-white">Saved Jobs</h2>
-              <p className="mt-1 text-sm text-zinc-400">Bookmarked jobs are kept here.</p>
-              <div className="mt-4 space-y-3">
-                {savedJobs.map((job) => (
-                  <JobCard key={job.id} job={job} isSaved />
-                ))}
-              </div>
+              <p className="mt-1 text-sm text-zinc-400">
+                Saved jobs persistence is not wired yet. Use Dashboard for live backend data.
+              </p>
             </section>
           )}
 
